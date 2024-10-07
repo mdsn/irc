@@ -13,11 +13,17 @@
 #[derive(Debug, PartialEq)]
 pub enum ServCmd {
     Join,
-    PrivMsg,
+    PrivMsg { target: MsgTarget, msg: String },
     Part,
     NameReply,  // 353
     EndOfNames, // 366
     Unknown(String),
+}
+
+#[derive(Debug, PartialEq)]
+enum MsgTarget {
+    Chan(String),
+    User(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -46,7 +52,7 @@ pub fn parse_msg(msg: &str) -> ServMsg {
         None
     };
 
-    let command = parts.next().unwrap().into();
+    let cmd = parts.next().unwrap();
 
     let mut params: Vec<String> = vec![];
     let mut rest = parts.collect::<Vec<&str>>();
@@ -55,6 +61,8 @@ pub fn parse_msg(msg: &str) -> ServMsg {
         params.push(rest.split_off(trailing_index).join(" "));
     }
 
+    let (command, params) = parse_cmd(cmd, params);
+
     ServMsg {
         prefix,
         command,
@@ -62,16 +70,27 @@ pub fn parse_msg(msg: &str) -> ServMsg {
     }
 }
 
-impl From<&str> for ServCmd {
-    fn from(s: &str) -> Self {
-        match s {
-            "JOIN" => ServCmd::Join,
-            "PRIVMSG" => ServCmd::PrivMsg,
-            "PART" => ServCmd::Part,
-            "353" => ServCmd::NameReply,
-            "366" => ServCmd::EndOfNames,
-            _ => ServCmd::Unknown(s.to_string()),
+fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
+    match cmd {
+        "JOIN" => (ServCmd::Join, params),
+        "PRIVMSG" => {
+            let target = if params[0].starts_with('#') {
+                MsgTarget::Chan(params[0].to_string())
+            } else {
+                MsgTarget::User(params[0].to_string())
+            };
+            (
+                ServCmd::PrivMsg {
+                    target,
+                    msg: params[1][1..].to_string(),
+                },
+                vec![],
+            )
         }
+        "PART" => (ServCmd::Part, params),
+        "353" => (ServCmd::NameReply, params),
+        "366" => (ServCmd::EndOfNames, params),
+        _ => (ServCmd::Unknown(cmd.to_string()), params),
     }
 }
 
@@ -181,11 +200,14 @@ mod tests {
                 host: "freenode-o6n.182.alt94q.IP".to_string(),
             })
         );
-        assert_eq!(serv_msg.command, ServCmd::PrivMsg);
         assert_eq!(
-            serv_msg.params,
-            vec!["#bobcat".to_string(), ":this is a wug!!".to_string()]
+            serv_msg.command,
+            ServCmd::PrivMsg {
+                target: MsgTarget::Chan("#bobcat".to_string()),
+                msg: "this is a wug!!".to_string(),
+            }
         );
+        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
