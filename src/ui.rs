@@ -134,6 +134,13 @@ impl UI {
             .add_tab(TabKind::Serv { serv: name });
     }
 
+    pub fn add_chan_tab(&self, serv: String, chan: String) {
+        self.dbg(&format!("Adding channel tab: {} on {}", chan, serv));
+        self.inner
+            .borrow_mut()
+            .add_tab(TabKind::Chan { serv, chan });
+    }
+
     fn current_tab(&self) -> Ref<Tab> {
         let inner = self.inner.borrow();
         Ref::map(inner, |x| &x.tabs[x.cur_tab])
@@ -189,11 +196,16 @@ impl UI {
                 clients.push(client);
             }
             Cmd::Join(chan) => {
-                // Get the server name from the current tab
-                self.dbg(&format!("Joining {}", chan));
-                match &self.current_tab().id {
+                let tab_id = self.current_tab().id.clone();
+                match tab_id {
                     TabKind::Serv { serv } => {
                         self.dbg(&format!("Joining {chan} on {serv}"));
+                        if let Some(client) = clients.iter().find(|c| c.name == serv) {
+                            client.join(&chan);
+                            self.add_chan_tab(serv, chan);
+                        } else {
+                            self.dbg(&format!("No client found for server {serv}"));
+                        }
                     }
                     _ => {
                         self.dbg("Join command on debug tab");
@@ -301,6 +313,7 @@ impl Tab {
     }
 }
 
+#[derive(Clone)]
 enum TabKind {
     Debug,
     Serv { serv: String },

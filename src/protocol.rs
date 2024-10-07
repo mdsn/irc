@@ -21,8 +21,18 @@ pub enum ServCmd {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum Prefix {
+    Server(String),
+    User {
+        nick: String,
+        user: String,
+        host: String,
+    },
+}
+
+#[derive(Debug, PartialEq)]
 pub struct ServMsg {
-    pub prefix: Option<String>,
+    pub prefix: Option<Prefix>,
     pub command: ServCmd,
     pub params: Vec<String>,
 }
@@ -31,7 +41,7 @@ pub fn parse_msg(msg: &str) -> ServMsg {
     let mut parts = msg.split_whitespace();
     let prefix = if parts.clone().next().unwrap().starts_with(':') {
         let p = parts.next().unwrap();
-        Some(p[1..].to_string())
+        Some(parse_prefix(&p[1..]))
     } else {
         None
     };
@@ -65,15 +75,53 @@ impl From<&str> for ServCmd {
     }
 }
 
+fn parse_prefix(prefix: &str) -> Prefix {
+    if prefix.contains('!') && prefix.contains('@') {
+        let mut parts = prefix.splitn(2, '!');
+        let nick = parts.next().unwrap().to_string();
+        let rest = parts.next().unwrap();
+        let mut parts = rest.splitn(2, '@');
+        let user = parts.next().unwrap().to_string();
+        let host = parts.next().unwrap().to_string();
+        Prefix::User { nick, user, host }
+    } else {
+        Prefix::Server(prefix.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_prefix_serv() {
+        let prefix = "*.freenode.net";
+        let parsed = parse_prefix(prefix);
+        assert_eq!(parsed, Prefix::Server("*.freenode.net".to_string()));
+    }
+
+    #[test]
+    fn test_parse_prefix_user() {
+        let prefix = "MrNickname!~MrUser@freenode-o6n.182.alt94q.IP";
+        let parsed = parse_prefix(prefix);
+        assert_eq!(
+            parsed,
+            Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_353() {
         let msg = ":*.freenode.net 353 my-nickname = #bobcat :@my-nickname";
         let serv_msg = parse_msg(msg);
-        assert_eq!(serv_msg.prefix, Some("*.freenode.net".to_string()));
+        assert_eq!(
+            serv_msg.prefix,
+            Some(Prefix::Server("*.freenode.net".to_string()))
+        );
         assert_eq!(serv_msg.command, ServCmd::NameReply);
         assert_eq!(
             serv_msg.params,
@@ -90,7 +138,10 @@ mod tests {
     fn test_parse_366() {
         let msg = ":*.freenode.net 366 my-nickname #bobcat :End of /NAMES list.";
         let serv_msg = parse_msg(msg);
-        assert_eq!(serv_msg.prefix, Some("*.freenode.net".to_string()));
+        assert_eq!(
+            serv_msg.prefix,
+            Some(Prefix::Server("*.freenode.net".to_string()))
+        );
         assert_eq!(serv_msg.command, ServCmd::EndOfNames);
         assert_eq!(
             serv_msg.params,
@@ -108,7 +159,11 @@ mod tests {
         let serv_msg = parse_msg(msg);
         assert_eq!(
             serv_msg.prefix,
-            Some("MrNickname!~MrUser@freenode-o6n.182.alt94q.IP".to_string())
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
         );
         assert_eq!(serv_msg.command, ServCmd::Join);
         assert_eq!(serv_msg.params, vec![":#bobcat".to_string()]);
@@ -120,7 +175,11 @@ mod tests {
         let serv_msg = parse_msg(msg);
         assert_eq!(
             serv_msg.prefix,
-            Some("MrNickname!~MrUser@freenode-o6n.182.alt94q.IP".to_string())
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
         );
         assert_eq!(serv_msg.command, ServCmd::PrivMsg);
         assert_eq!(
@@ -135,7 +194,11 @@ mod tests {
         let serv_msg = parse_msg(msg);
         assert_eq!(
             serv_msg.prefix,
-            Some("MrNickname!~MrUser@freenode-o6n.182.alt94q.IP".to_string())
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
         );
         assert_eq!(serv_msg.command, ServCmd::Part);
         assert_eq!(serv_msg.params, vec![":#bobcat".to_string()]);
