@@ -8,6 +8,7 @@ mod command;
 mod input;
 mod terminal;
 mod ui;
+mod protocol;
 
 fn main() -> Result<()> {
     terminal::setup()?;
