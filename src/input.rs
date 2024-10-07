@@ -8,7 +8,7 @@ pub fn listen() -> Receiver<KeyCode> {
     rx
 }
 
-async fn poll_event_stream(mut input_tx: Sender<KeyCode>) {
+async fn poll_event_stream(input_tx: Sender<KeyCode>) {
     let mut reader = EventStream::new();
     loop {
         match reader.next().await {

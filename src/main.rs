@@ -21,10 +21,10 @@ fn main() -> Result<()> {
     local_set.block_on(&runtime, async {
         let input_rx = input::listen();
 
-        let mut tui = UI::new(config.clone());
+        let tui = UI::new(config.clone());
         tui.draw();
 
-        let mut clients = vec![];
+        let clients = vec![];
         ui::run(tui, input_rx, clients).await;
     });
 

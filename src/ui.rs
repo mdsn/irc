@@ -6,8 +6,7 @@ use crossterm::event::KeyCode;
 use crossterm::queue;
 use crossterm::style::Print;
 use crossterm::terminal::{Clear, ClearType};
-use futures::StreamExt;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::rc::Rc;
@@ -18,7 +17,7 @@ pub async fn run(tui: UI, input_rx: Receiver<KeyCode>, clients: Vec<Client>) {
     ui_loop(tui, clients, input_rx).await;
 }
 
-async fn ui_loop(mut tui: UI, mut clients: Vec<Client>, mut input_rx: Receiver<KeyCode>) {
+async fn ui_loop(tui: UI, mut clients: Vec<Client>, mut input_rx: Receiver<KeyCode>) {
     while let Some(cmd) = input_rx.recv().await {
         match cmd {
             KeyCode::Esc => {
@@ -49,18 +48,18 @@ struct InnerUI {
 }
 
 impl InnerUI {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             cur_tab: 0,
             tabs: vec![Tab::new(TabKind::Debug)],
         }
     }
 
-    pub fn dbg(&mut self, msg: &str) {
+    fn dbg(&mut self, msg: &str) {
         self.tabs[0].add_line(msg.to_string());
     }
 
-    pub fn add_msg(&mut self, src: String, msg: String) {
+    fn add_msg(&mut self, src: String, msg: String) {
         if let Some(tab) = self.find_tab_mut(&src) {
             tab.add_line(format!("<{}> {}", src, msg));
         } else {
@@ -68,7 +67,7 @@ impl InnerUI {
         }
     }
 
-    pub fn add_tab(&mut self, id: TabKind) {
+    fn add_tab(&mut self, id: TabKind) {
         self.tabs.push(Tab::new(id));
     }
 
@@ -104,8 +103,6 @@ impl InnerUI {
     pub fn take_input(&mut self) -> String {
         std::mem::take(&mut self.tabs[self.cur_tab].input)
     }
-
-    pub fn commit_input(&mut self, clients: &mut Vec<Client>) {}
 }
 
 #[derive(Clone)]
@@ -122,26 +119,31 @@ impl UI {
         }
     }
 
-    pub fn dbg(&mut self, msg: &str) {
+    pub fn dbg(&self, msg: &str) {
         self.inner.borrow_mut().dbg(msg);
     }
 
-    pub fn add_msg(&mut self, src: String, msg: String) {
+    pub fn add_msg(&self, src: String, msg: String) {
         self.inner.borrow_mut().add_msg(src, msg);
     }
 
-    pub fn add_serv_tab(&mut self, name: String) {
+    pub fn add_serv_tab(&self, name: String) {
         self.dbg(&format!("Adding server tab: {}", name));
         self.inner
             .borrow_mut()
             .add_tab(TabKind::Serv { serv: name });
     }
 
-    pub fn next_tab(&mut self) {
+    fn current_tab(&self) -> Ref<Tab> {
+        let inner = self.inner.borrow();
+        Ref::map(inner, |x| &x.tabs[x.cur_tab])
+    }
+
+    pub fn next_tab(&self) {
         self.inner.borrow_mut().next_tab();
     }
 
-    pub fn change_to_tab(&mut self, name: &str) {
+    pub fn change_to_tab(&self, name: &str) {
         if self.inner.borrow_mut().change_to_tab(name) {
             self.draw();
         } else {
@@ -149,19 +151,19 @@ impl UI {
         }
     }
 
-    pub fn push_input(&mut self, c: char) {
+    pub fn push_input(&self, c: char) {
         self.inner.borrow_mut().push_input(c);
     }
 
-    pub fn pop_input(&mut self) {
+    pub fn pop_input(&self) {
         self.inner.borrow_mut().pop_input();
     }
 
-    fn take_input(&mut self) -> String {
+    fn take_input(&self) -> String {
         self.inner.borrow_mut().take_input()
     }
 
-    pub fn commit_input(&mut self, clients: &mut Vec<Client>) {
+    pub fn commit_input(&self, clients: &mut Vec<Client>) {
         let input = self.take_input();
         match command::parse_input(&input) {
             Cmd::Connect(addr) => {
@@ -187,7 +189,16 @@ impl UI {
                 clients.push(client);
             }
             Cmd::Join(chan) => {
+                // Get the server name from the current tab
                 self.dbg(&format!("Joining {}", chan));
+                match &self.current_tab().id {
+                    TabKind::Serv { serv } => {
+                        self.dbg(&format!("Joining {chan} on {serv}"));
+                    }
+                    _ => {
+                        self.dbg("Join command on debug tab");
+                    }
+                }
             }
             Cmd::Quit(msg) => {
                 self.dbg(&format!("Quitting: {}", msg));

@@ -45,7 +45,7 @@ fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>) {
 }
 
 /// Manipulate the client and UI based on network activity.
-pub async fn handle_network_events(mut ev_rx: Receiver<Event>, mut tui: UI, client: Client) {
+pub async fn handle_network_events(mut ev_rx: Receiver<Event>, tui: UI, client: Client) {
     while let Some(Event { src, msg }) = ev_rx.recv().await {
         // For now, send the server messages into that server's tab.
         tui.add_msg(src, msg);
