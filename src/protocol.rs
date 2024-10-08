@@ -21,9 +21,10 @@ pub enum ServCmd {
 }
 
 #[derive(Debug, PartialEq)]
-enum MsgTarget {
+pub enum MsgTarget {
     Chan(String),
     User(String),
+    Serv(String),
 }
 
 #[derive(Debug, PartialEq)]

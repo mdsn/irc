@@ -1,5 +1,6 @@
 use crate::client::{Client, ServInfo};
 use crate::command::Cmd;
+use crate::protocol::{MsgTarget, Prefix};
 use crate::{client, command, Config};
 use crossterm::cursor::MoveTo;
 use crossterm::event::KeyCode;
@@ -59,11 +60,29 @@ impl InnerUI {
         self.tabs[0].add_line(msg.to_string());
     }
 
-    fn add_msg(&mut self, src: String, msg: String) {
-        if let Some(tab) = self.find_tab_mut(&src) {
+    fn add_msg(&mut self, serv_name: &str, prefix: Option<Prefix>, target: MsgTarget, msg: &str) {
+        let src = match &prefix {
+            Some(Prefix::Server(s)) => s,
+            Some(Prefix::User { nick, .. }) => nick,
+            None => "[?]",
+        };
+
+        let tab_id = match target {
+            MsgTarget::Chan(chan) => TabKind::Chan {
+                serv: serv_name.to_string(),
+                chan,
+            },
+            MsgTarget::User(nick) => TabKind::Query {
+                serv: serv_name.to_string(),
+                nick,
+            },
+            MsgTarget::Serv(serv) => TabKind::Serv { serv },
+        };
+
+        if let Some(tab) = self.find_tab_mut(&tab_id) {
             tab.add_line(format!("<{}> {}", src, msg));
         } else {
-            self.dbg(&format!("No tab found for message from {}: {}", src, msg));
+            self.dbg(&format!("<{serv_name}> No tab found {src}: {msg}"));
         }
     }
 
@@ -71,8 +90,8 @@ impl InnerUI {
         self.tabs.push(Tab::new(id));
     }
 
-    fn change_to_tab(&mut self, name: &str) -> bool {
-        if let Some(pos) = self.tab_position(name) {
+    fn change_to_tab(&mut self, id: &TabKind) -> bool {
+        if let Some(pos) = self.tab_position(&id) {
             self.cur_tab = pos;
             true
         } else {
@@ -80,12 +99,12 @@ impl InnerUI {
         }
     }
 
-    fn find_tab_mut(&mut self, name: &str) -> Option<&mut Tab> {
-        self.tabs.iter_mut().find(|tab| tab.id == name)
+    fn find_tab_mut(&mut self, id: &TabKind) -> Option<&mut Tab> {
+        self.tabs.iter_mut().find(|tab| tab.id == *id)
     }
 
-    fn tab_position(&self, name: &str) -> Option<usize> {
-        self.tabs.iter().position(|tab| tab.id == name)
+    fn tab_position(&self, id: &TabKind) -> Option<usize> {
+        self.tabs.iter().position(|tab| tab.id == *id)
     }
 
     pub fn next_tab(&mut self) {
@@ -123,22 +142,18 @@ impl UI {
         self.inner.borrow_mut().dbg(msg);
     }
 
-    pub fn add_msg(&self, src: String, msg: String) {
-        self.inner.borrow_mut().add_msg(src, msg);
-    }
-
-    pub fn add_serv_tab(&self, name: String) {
-        self.dbg(&format!("Adding server tab: {}", name));
+    pub fn add_msg(&self, serv_name: &str, prefix: Option<Prefix>, target: MsgTarget, msg: &str) {
         self.inner
             .borrow_mut()
-            .add_tab(TabKind::Serv { serv: name });
+            .add_msg(serv_name, prefix, target, msg);
     }
 
-    pub fn add_chan_tab(&self, serv: String, chan: String) {
-        self.dbg(&format!("Adding channel tab: {} on {}", chan, serv));
-        self.inner
-            .borrow_mut()
-            .add_tab(TabKind::Chan { serv, chan });
+    pub fn add_serv_msg(&self, serv_name: &str, msg: &str) {
+        self.add_msg(serv_name, None, MsgTarget::Serv(serv_name.to_string()), msg);
+    }
+
+    pub fn add_tab(&self, id: TabKind) {
+        self.inner.borrow_mut().add_tab(id);
     }
 
     fn current_tab(&self) -> Ref<Tab> {
@@ -150,11 +165,11 @@ impl UI {
         self.inner.borrow_mut().next_tab();
     }
 
-    pub fn change_to_tab(&self, name: &str) {
-        if self.inner.borrow_mut().change_to_tab(name) {
+    pub fn change_to_tab(&self, id: &TabKind) {
+        if self.inner.borrow_mut().change_to_tab(&id) {
             self.draw();
         } else {
-            self.dbg(&format!("change_to_tab: No tab found for {}", name));
+            self.dbg(&format!("change_to_tab: No tab found for {}", id));
         }
     }
 
@@ -184,8 +199,11 @@ impl UI {
                 };
                 self.dbg(&format!("{serv_info:?}"));
 
-                self.add_serv_tab(serv_info.name().to_string());
-                self.change_to_tab(serv_info.name());
+                let tab_id = TabKind::Serv {
+                    serv: serv_info.name().to_string(),
+                };
+                self.add_tab(tab_id.clone());
+                self.change_to_tab(&tab_id);
 
                 let (client, ev_rx) = Client::new(serv_info);
                 tokio::task::spawn_local(client::handle_network_events(
@@ -202,7 +220,9 @@ impl UI {
                         self.dbg(&format!("Joining {chan} on {serv}"));
                         if let Some(client) = clients.iter().find(|c| c.name == serv) {
                             client.join(&chan);
-                            self.add_chan_tab(serv, chan);
+                            let tab_id = TabKind::Chan { serv, chan };
+                            self.add_tab(tab_id.clone());
+                            self.change_to_tab(&tab_id);
                         } else {
                             self.dbg(&format!("No client found for server {serv}"));
                         }
@@ -227,7 +247,7 @@ impl UI {
         queue!(io::stdout(), MoveTo(0, 0), Clear(ClearType::CurrentLine),)
             .expect("failed to draw tab");
         for (i, tab) in inner.tabs.iter().enumerate() {
-            tab.draw(i, i == inner.cur_tab);
+            tab.draw(i == inner.cur_tab);
         }
 
         // Draw tab content
@@ -277,8 +297,6 @@ impl UI {
 struct Tab {
     /// Identifier for the tab
     id: TabKind,
-    /// Width of the display name
-    width: u16,
     /// Content of the input buffer associated with this tab
     input: String,
     /// Lines of output associated with this tab
@@ -287,10 +305,8 @@ struct Tab {
 
 impl Tab {
     pub fn new(id: TabKind) -> Self {
-        let width = id.display_width();
         Self {
             id,
-            width,
             input: String::with_capacity(256),
             lines: VecDeque::new(),
         }
@@ -300,7 +316,7 @@ impl Tab {
         self.lines.push_back(line);
     }
 
-    pub fn draw(&self, index: usize, is_active: bool) {
+    pub fn draw(&self, is_active: bool) {
         queue!(
             io::stdout(),
             Print(if is_active {
@@ -313,23 +329,12 @@ impl Tab {
     }
 }
 
-#[derive(Clone)]
-enum TabKind {
+#[derive(Clone, PartialEq)]
+pub enum TabKind {
     Debug,
     Serv { serv: String },
     Chan { serv: String, chan: String },
     Query { serv: String, nick: String },
-}
-
-impl TabKind {
-    fn display_width(&self) -> u16 {
-        match self {
-            Self::Debug => 9u16, // "__debug__"
-            Self::Serv { serv } => serv.len() as u16,
-            Self::Chan { chan, .. } => chan.len() as u16,
-            Self::Query { nick, .. } => nick.len() as u16,
-        }
-    }
 }
 
 impl fmt::Display for TabKind {
@@ -339,18 +344,6 @@ impl fmt::Display for TabKind {
             Self::Serv { serv } => write!(f, "{}", serv),
             Self::Chan { chan, .. } => write!(f, "{}", chan),
             Self::Query { nick, .. } => write!(f, "{}", nick),
-        }
-    }
-}
-
-// XXX This will cause equally named tabs in different servers to be selected :|
-impl PartialEq<&str> for TabKind {
-    fn eq(&self, other: &&str) -> bool {
-        match self {
-            Self::Debug => *other == "__debug__",
-            Self::Serv { serv } => serv == *other,
-            Self::Chan { chan, .. } => chan == *other,
-            Self::Query { nick, .. } => nick == *other,
         }
     }
 }

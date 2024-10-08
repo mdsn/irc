@@ -1,3 +1,4 @@
+use crate::protocol::{parse_msg, ServCmd, ServMsg};
 use crate::ui::UI;
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -5,8 +6,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct Event {
-    src: String,
-    msg: String,
+    msg: ServMsg,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,9 @@ impl Client {
     }
 
     fn send(&self, msg: &str) {
-        self.cmd_tx.try_send(msg.to_string()).expect("failed to send message");
+        self.cmd_tx
+            .try_send(msg.to_string())
+            .expect("failed to send message");
     }
 
     pub fn join(&self, chan: &str) {
@@ -58,9 +60,22 @@ fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>) {
 
 /// Manipulate the client and UI based on network activity.
 pub async fn handle_network_events(mut ev_rx: Receiver<Event>, tui: UI, client: Client) {
-    while let Some(Event { src, msg }) = ev_rx.recv().await {
-        // For now, send the server messages into that server's tab.
-        tui.add_msg(src, msg);
+    while let Some(Event { msg }) = ev_rx.recv().await {
+        match msg {
+            ServMsg {
+                prefix,
+                command,
+                params,
+            } => match command {
+                ServCmd::PrivMsg { target, msg } => {
+                    tui.add_msg(&client.name, prefix, target, &msg);
+                }
+                _ => {
+                    let msg = format!("unhandled command {:?}", command);
+                    tui.add_serv_msg(&client.name, &msg);
+                }
+            },
+        }
         tui.draw();
     }
 }
@@ -93,12 +108,9 @@ async fn network_loop(serv_info: ServInfo, ev_tx: Sender<Event>, mut cmd_rx: Rec
                         send(&mut writer, &pong).await.expect("failed to send PONG");
                     }
                     Ok(Some(line)) => {
-                        // let src = parse_msg(&line);
+                        let msg = parse_msg(&line);
                         ev_tx
-                            .send(Event {
-                                msg: line,
-                                src: serv_info.name().to_string(),
-                            })
+                            .send(Event { msg })
                             .await
                             .expect("failed to send message");
                     }
