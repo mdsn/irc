@@ -70,7 +70,7 @@ pub enum ServCmd {
     MOTDStart {
         msg: String,
     }, // 375
-    MOTD {
+    Motd {
         msg: String,
     }, // 372
     MOTDEnd {
@@ -113,7 +113,6 @@ pub enum Prefix {
 pub struct ServMsg {
     pub prefix: Option<Prefix>,
     pub command: ServCmd,
-    pub params: Vec<String>,
 }
 
 pub fn parse_msg(msg: &str) -> ServMsg {
@@ -134,20 +133,16 @@ pub fn parse_msg(msg: &str) -> ServMsg {
         params.push(rest.split_off(trailing_index).join(" "));
     }
 
-    let (command, params) = parse_cmd(cmd, params);
+    let command = parse_cmd(cmd, params);
 
-    ServMsg {
-        prefix,
-        command,
-        params,
-    }
+    ServMsg { prefix, command }
 }
 
-fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
+fn parse_cmd(cmd: &str, params: Vec<String>) -> ServCmd {
     match cmd {
         "JOIN" => {
             let chan = params[0][1..].to_string();
-            (ServCmd::Join { chan }, vec![])
+            ServCmd::Join { chan }
         }
         "PRIVMSG" => {
             let target = if params[0].starts_with('#') {
@@ -155,13 +150,10 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
             } else {
                 MsgTarget::User(params[0].to_string())
             };
-            (
-                ServCmd::PrivMsg {
-                    target,
-                    msg: params[1][1..].to_string(),
-                },
-                vec![],
-            )
+            ServCmd::PrivMsg {
+                target,
+                msg: params[1][1..].to_string(),
+            }
         }
         "PART" => {
             // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
@@ -171,60 +163,56 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
             } else {
                 (params[0].to_string(), params[1][1..].to_string())
             };
-            (ServCmd::Part { chan, msg }, vec![])
+            ServCmd::Part { chan, msg }
         }
         "NOTICE" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::Notice { msg }, vec![])
+            ServCmd::Notice { msg }
         }
         "001" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::RplWelcome { msg }, vec![])
+            ServCmd::RplWelcome { msg }
         }
         "002" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::RplYourHost { msg }, vec![])
+            ServCmd::RplYourHost { msg }
         }
         "003" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::RplCreated { msg }, vec![])
+            ServCmd::RplCreated { msg }
         }
         "004" => {
-            let msg = params[1..].join(" ");
-            (
-                ServCmd::RplMyInfo {
-                    version: params[2].to_string(),
-                    umodes: params[3].to_string(),
-                    cmodes: params[4].to_string(),
-                    cmodes_param: params[5][1..].to_string(), // i think this is optional
-                },
-                vec![],
-            )
+            ServCmd::RplMyInfo {
+                version: params[2].to_string(),
+                umodes: params[3].to_string(),
+                cmodes: params[4].to_string(),
+                cmodes_param: params[5][1..].to_string(), // i think this is optional
+            }
         }
         "005" => {
             // TODO should actually split by ":are supported by this server" trailing instead
             let msg = params[1..].join(" ");
-            (ServCmd::RplISupport { msg }, vec![])
+            ServCmd::RplISupport { msg }
         }
         "251" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::RplLuserClient { msg }, vec![])
+            ServCmd::RplLuserClient { msg }
         }
         "252" => {
             let msg = params[1..].join(" ");
-            (ServCmd::RplLuserOp { msg }, vec![])
+            ServCmd::RplLuserOp { msg }
         }
         "253" => {
             let msg = params[1..].join(" ");
-            (ServCmd::RplLuserUnknown { msg }, vec![])
+            ServCmd::RplLuserUnknown { msg }
         }
         "254" => {
             let msg = params[1..].join(" ");
-            (ServCmd::RplLuserChannels { msg }, vec![])
+            ServCmd::RplLuserChannels { msg }
         }
         "255" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::RplLuserMe { msg }, vec![])
+            ServCmd::RplLuserMe { msg }
         }
         "265" => {
             // XXX Watch out: https://modern.ircdocs.horse/#rpllocalusers-265
@@ -232,12 +220,12 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
             // > The two optional parameters SHOULD be supplied to allow clients to better extract
             // > these numbers.
             let msg = params[1][1..].to_string();
-            (ServCmd::RplLocalUsers { msg }, vec![])
+            ServCmd::RplLocalUsers { msg }
         }
         "266" => {
             // Same comment as for 265
             let msg = params[1][1..].to_string();
-            (ServCmd::RplGlobalUsers { msg }, vec![])
+            ServCmd::RplGlobalUsers { msg }
         }
         "353" => {
             let sym = params[1].chars().next().unwrap();
@@ -246,33 +234,33 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
                 .split_whitespace()
                 .map(|x| x.to_string())
                 .collect();
-            (ServCmd::NameReply { sym, chan, nicks }, vec![])
+            ServCmd::NameReply { sym, chan, nicks }
         }
         "366" => {
             // :*.freenode.net 366 MrNickname #bobcat :End of /NAMES list.
             let chan = &params[1];
             let msg = format!("{chan} {}", &params[2][1..]);
-            (ServCmd::EndOfNames { msg }, vec![])
+            ServCmd::EndOfNames { msg }
         }
         "375" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::MOTDStart { msg }, vec![])
+            ServCmd::MOTDStart { msg }
         }
         "372" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::MOTD { msg }, vec![])
+            ServCmd::Motd { msg }
         }
         "376" => {
             let msg = params[1][1..].to_string();
-            (ServCmd::MOTDEnd { msg }, vec![])
+            ServCmd::MOTDEnd { msg }
         }
         "396" => {
             // This command isn't in the RFC nor in modern.ircdocs.horse, so idk best effort parsing
             let trailing = &params[2][1..];
             let msg = format!("{} {}", params[1], trailing);
-            (ServCmd::DisplayedHost { msg }, vec![])
+            ServCmd::DisplayedHost { msg }
         }
-        _ => (ServCmd::Unknown(cmd.to_string()), params),
+        _ => ServCmd::Unknown(cmd.to_string()),
     }
 }
 
@@ -332,7 +320,6 @@ mod tests {
                 cmodes_param: "BEFIJLWXYZbdefhjklovw".to_string(),
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -350,7 +337,6 @@ mod tests {
                 msg: "There are 18 users and 4959 invisible on 10 servers".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -367,7 +353,6 @@ mod tests {
                 msg: "6 :operator(s) online".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -384,7 +369,6 @@ mod tests {
                 msg: "4 :unknown connections".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -401,7 +385,6 @@ mod tests {
                 msg: "9690 :channels formed".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -418,7 +401,6 @@ mod tests {
                 msg: "I have 1704 clients and 1 servers".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -438,7 +420,6 @@ mod tests {
                 msg: "Current local users: 1704  Max: 4101".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -458,7 +439,6 @@ mod tests {
                 msg: "Current global users: 4977  Max: 10281".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -497,7 +477,6 @@ mod tests {
                 msg: "#bobcat End of /NAMES list.".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -518,7 +497,6 @@ mod tests {
                 chan: "#bobcat".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -583,7 +561,6 @@ mod tests {
                 msg: "this is a wug!!".to_string(),
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -616,7 +593,6 @@ mod tests {
                 msg: "Your host is *.freenode.net, running version InspIRCd-3".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -633,7 +609,6 @@ mod tests {
                 msg: "This server was created 09:22:41 Jun 22 2023".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -678,7 +653,6 @@ mod tests {
                 msg: "*.freenode.net message of the day".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -695,11 +669,10 @@ mod tests {
         // is reassembled. msg should have two spaces in the beginning!
         assert_eq!(
             serv_msg.command,
-            ServCmd::MOTD {
+            ServCmd::Motd {
                 msg: "  Thank you for using freenode!".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -716,7 +689,6 @@ mod tests {
                 msg: "End of message of the day.".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]
@@ -734,7 +706,6 @@ mod tests {
                 msg: "freenode-o6n.182.alt94q.IP is now your displayed host".to_string()
             }
         );
-        assert!(serv_msg.params.is_empty());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::client::{Client, ServInfo};
 use crate::command::Cmd;
-use crate::protocol::{MsgTarget, Prefix};
+use crate::protocol::MsgTarget;
 use crate::{client, command, Config};
 use crossterm::cursor::MoveTo;
 use crossterm::event::KeyCode;
@@ -76,7 +76,7 @@ impl InnerUI {
         };
 
         if let Some(tab) = self.find_tab_mut(&tab_id) {
-            tab.add_line(format!("{msg}"));
+            tab.add_line(msg.to_string());
         } else {
             self.dbg(&format!("[{serv_name}] No tab found {target:?} ({msg})"));
         }
@@ -87,7 +87,7 @@ impl InnerUI {
     }
 
     fn change_to_tab(&mut self, id: &TabKind) -> bool {
-        if let Some(pos) = self.tab_position(&id) {
+        if let Some(pos) = self.tab_position(id) {
             self.cur_tab = pos;
             true
         } else {
@@ -160,7 +160,7 @@ impl UI {
     }
 
     pub fn change_to_tab(&self, id: &TabKind) {
-        if self.inner.borrow_mut().change_to_tab(&id) {
+        if self.inner.borrow_mut().change_to_tab(id) {
             self.draw();
         } else {
             self.dbg(&format!("change_to_tab: No tab found for {}", id));
@@ -286,8 +286,8 @@ impl UI {
 
         // Draw lines of text
         let mut y = rows - 2;
-        let mut messages = tab.lines.iter().rev().take(rows as usize - 1).peekable();
-        while let Some(message) = messages.next() {
+        let messages = tab.lines.iter().rev().take(rows as usize - 1).peekable();
+        for message in messages {
             queue!(
                 io::stdout(),
                 MoveTo(0, y),
