@@ -4,6 +4,7 @@
 // :MrNickname!~guest@freenode-o6n.182.alt94q.IP MODE MrNickname :+wRix
 // TODO Parse PART
 // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
+// :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART #bobcat :"getting out of here"
 
 #[derive(Debug, PartialEq)]
 pub enum ServCmd {
@@ -14,7 +15,10 @@ pub enum ServCmd {
         target: MsgTarget,
         msg: String,
     },
-    Part,
+    Part {
+        chan: String,
+        msg: String,
+    },
     Notice {
         msg: String,
     },
@@ -151,7 +155,16 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> (ServCmd, Vec<String>) {
                 vec![],
             )
         }
-        "PART" => (ServCmd::Part, params),
+        "PART" => {
+            // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
+            // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART #bobcat :"getting out of here"
+            let (chan, msg) = if params.len() == 1 {
+                (params[0][1..].to_string(), "".to_string())
+            } else {
+                (params[0].to_string(), params[1][1..].to_string())
+            };
+            (ServCmd::Part { chan, msg }, vec![])
+        }
         "NOTICE" => {
             let msg = params[1][1..].to_string();
             (ServCmd::Notice { msg }, vec![])
@@ -501,6 +514,49 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_part() {
+        let msg = ":MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat";
+        let serv_msg = parse_msg(msg);
+        assert_eq!(
+            serv_msg.prefix,
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
+        );
+        assert_eq!(
+            serv_msg.command,
+            ServCmd::Part {
+                chan: "#bobcat".to_string(),
+                msg: "".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_part_with_msg() {
+        let msg =
+            ":MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART #bobcat :\"getting out of here\"";
+        let serv_msg = parse_msg(msg);
+        assert_eq!(
+            serv_msg.prefix,
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~MrUser".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
+        );
+        assert_eq!(
+            serv_msg.command,
+            ServCmd::Part {
+                chan: "#bobcat".to_string(),
+                msg: "\"getting out of here\"".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_privmsg() {
         let msg = ":MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PRIVMSG #bobcat :this is a wug!!";
         let serv_msg = parse_msg(msg);
@@ -520,22 +576,6 @@ mod tests {
             }
         );
         assert!(serv_msg.params.is_empty());
-    }
-
-    #[test]
-    fn test_parse_part() {
-        let msg = ":MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat";
-        let serv_msg = parse_msg(msg);
-        assert_eq!(
-            serv_msg.prefix,
-            Some(Prefix::User {
-                nick: "MrNickname".to_string(),
-                user: "~MrUser".to_string(),
-                host: "freenode-o6n.182.alt94q.IP".to_string(),
-            })
-        );
-        assert_eq!(serv_msg.command, ServCmd::Part);
-        assert_eq!(serv_msg.params, vec![":#bobcat".to_string()]);
     }
 
     #[test]

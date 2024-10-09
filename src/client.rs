@@ -93,6 +93,16 @@ pub async fn handle_network_events(
                                     &format!("{nick} ({user}@{host}) joined {chan}"));
                             }
                         }
+                        ServCmd::Part { chan, msg } => {
+                            if let Some(Prefix::User { nick, user, host }) = &prefix {
+                                let msg = if msg.is_empty() {
+                                    format!("{nick} ({user}@{host}) left {chan}")
+                                } else {
+                                    format!("{nick} ({user}@{host}) left {chan} ({msg})")
+                                };
+                                tui.add_msg(&client.name, &prefix, MsgTarget::Chan(chan.clone()), &msg);
+                            }
+                        }
                         ServCmd::Notice { msg } => tui.add_serv_msg(&client.name, &msg),
                         ServCmd::RplWelcome { msg } => tui.add_serv_msg(&client.name, &msg),
                         ServCmd::RplYourHost { msg } => tui.add_serv_msg(&client.name, &msg),
