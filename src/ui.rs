@@ -238,7 +238,31 @@ impl UI {
                 self.dbg(&format!("Quitting: {}", msg));
             }
             Cmd::Msg(msg) => {
-                self.dbg(&format!("Sending message: {}", msg));
+                let tab_id = self.current_tab().id.clone();
+                match &tab_id {
+                    TabKind::Serv { serv: _ } => {
+                        self.dbg(&format!("Message sent on server tab: {msg}"))
+                    }
+                    TabKind::Chan { serv, chan } => {
+                        self.dbg(&format!("Sending message to {chan} on {serv}: {msg}"));
+                        if let Some(client) = clients.iter().find(|c| c.name == *serv) {
+                            client.privmsg(chan, &msg);
+                        } else {
+                            self.dbg(&format!("No client found for server {serv}"));
+                        }
+                    }
+                    TabKind::Query { serv, nick } => {
+                        self.dbg(&format!("Sending message to {nick} on {serv}: {msg}"));
+                        if let Some(client) = clients.iter().find(|c| c.name == *serv) {
+                            client.privmsg(nick, &msg);
+                        } else {
+                            self.dbg(&format!("No client found for server {serv}"));
+                        }
+                    }
+                    _ => {
+                        self.dbg("Message command on debug tab");
+                    }
+                }
             }
         }
     }

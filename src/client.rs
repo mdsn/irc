@@ -44,6 +44,10 @@ impl Client {
     pub fn join(&self, chan: &str) {
         self.send(&format!("JOIN {}\r\n", chan));
     }
+
+    pub fn privmsg(&self, target: &str, msg: &str) {
+        self.send(&format!("PRIVMSG {} :{}\r\n", target, msg));
+    }
 }
 
 fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>, Receiver<String>) {

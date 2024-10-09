@@ -2,9 +2,7 @@
 
 // TODO: Parse MODE message
 // :MrNickname!~guest@freenode-o6n.182.alt94q.IP MODE MrNickname :+wRix
-// TODO Parse PART
-// :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
-// :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART #bobcat :"getting out of here"
+// TODO Parse QUIT message
 
 #[derive(Debug, PartialEq)]
 pub enum ServCmd {
