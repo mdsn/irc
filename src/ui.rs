@@ -205,9 +205,10 @@ impl UI {
                 self.add_tab(tab_id.clone());
                 self.change_to_tab(&tab_id);
 
-                let (client, ev_rx) = Client::new(serv_info);
+                let (client, ev_rx, dbg_rx) = Client::new(serv_info);
                 tokio::task::spawn_local(client::handle_network_events(
                     ev_rx,
+                    dbg_rx,
                     self.clone(),
                     client.clone(),
                 ));

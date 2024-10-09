@@ -31,7 +31,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(serv_info: ServInfo) -> (Self, Receiver<Event>) {
+    pub fn new(serv_info: ServInfo) -> (Self, Receiver<Event>, Receiver<String>) {
         connect(serv_info)
     }
 
@@ -46,42 +46,63 @@ impl Client {
     }
 }
 
-fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>) {
+fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>, Receiver<String>) {
     // Channel for messages from the server.
     let (ev_tx, ev_rx) = tokio::sync::mpsc::channel(100);
     // Channel for commands from the app.
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(100);
+    // Channel to output all network activity as debug messages.
+    let (dbg_tx, dbg_rx) = tokio::sync::mpsc::channel(100);
 
     let name = serv_info.addr.clone();
-    tokio::task::spawn_local(network_loop(serv_info, ev_tx, cmd_rx));
+    tokio::task::spawn_local(network_loop(serv_info, ev_tx, dbg_tx, cmd_rx));
 
-    (Client { name, cmd_tx }, ev_rx)
+    (Client { name, cmd_tx }, ev_rx, dbg_rx)
 }
 
 /// Manipulate the client and UI based on network activity.
-pub async fn handle_network_events(mut ev_rx: Receiver<Event>, tui: UI, client: Client) {
-    while let Some(Event { msg }) = ev_rx.recv().await {
-        match msg {
-            ServMsg {
-                prefix,
-                command,
-                params,
-            } => match command {
-                ServCmd::PrivMsg { target, msg } => {
-                    tui.add_msg(&client.name, prefix, target, &msg);
+pub async fn handle_network_events(
+    mut ev_rx: Receiver<Event>,
+    mut dbg_rx: Receiver<String>,
+    tui: UI,
+    client: Client,
+) {
+    loop {
+        tokio::select! {
+            Some(Event { msg }) = ev_rx.recv() => {
+                match msg {
+                    ServMsg {
+                        prefix,
+                        command,
+                        params,
+                    } => match command {
+                        ServCmd::PrivMsg { target, msg } => {
+                            tui.add_msg(&client.name, prefix, target, &msg);
+                        }
+                        _ => {
+                            let msg = format!("unhandled command {:?}", command);
+                            tui.add_serv_msg(&client.name, &msg);
+                        }
+                    },
                 }
-                _ => {
-                    let msg = format!("unhandled command {:?}", command);
-                    tui.add_serv_msg(&client.name, &msg);
-                }
-            },
+                tui.draw();
+            }
+
+            Some(msg) = dbg_rx.recv() => {
+                tui.dbg(&msg);
+                tui.draw();
+            }
         }
-        tui.draw();
     }
 }
 
 /// Low level communication with the server.
-async fn network_loop(serv_info: ServInfo, ev_tx: Sender<Event>, mut cmd_rx: Receiver<String>) {
+async fn network_loop(
+    serv_info: ServInfo,
+    ev_tx: Sender<Event>,
+    dbg_tx: Sender<String>,
+    mut cmd_rx: Receiver<String>,
+) {
     let host = format!("{}:{}", serv_info.addr, serv_info.port);
     let stream = TcpStream::connect(host)
         .await
@@ -108,6 +129,8 @@ async fn network_loop(serv_info: ServInfo, ev_tx: Sender<Event>, mut cmd_rx: Rec
                         send(&mut writer, &pong).await.expect("failed to send PONG");
                     }
                     Ok(Some(line)) => {
+                        dbg_tx.send(line.clone()).await.expect("failed to send debug message");
+
                         let msg = parse_msg(&line);
                         ev_tx
                             .send(Event { msg })
