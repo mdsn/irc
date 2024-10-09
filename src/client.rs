@@ -27,6 +27,7 @@ impl ServInfo {
 #[derive(Clone)]
 pub struct Client {
     pub name: String,
+    pub nick: String,
     cmd_tx: Sender<String>,
 }
 
@@ -59,9 +60,10 @@ fn connect(serv_info: ServInfo) -> (Client, Receiver<Event>, Receiver<String>) {
     let (dbg_tx, dbg_rx) = tokio::sync::mpsc::channel(100);
 
     let name = serv_info.addr.clone();
+    let nick = serv_info.nick.clone();
     tokio::task::spawn_local(network_loop(serv_info, ev_tx, dbg_tx, cmd_rx));
 
-    (Client { name, cmd_tx }, ev_rx, dbg_rx)
+    (Client { name, nick, cmd_tx }, ev_rx, dbg_rx)
 }
 
 /// Manipulate the client and UI based on network activity.
@@ -83,7 +85,7 @@ pub async fn handle_network_events(
                         ServCmd::PrivMsg { target, msg } => {
                             match &prefix {
                                 Some(Prefix::User { nick, user, host }) => {
-                                    tui.add_msg(&client.name, &prefix, target, &format!("<{nick}> {msg}"));
+                                    tui.add_msg(&client.name, target, &format!("<{nick}> {msg}"));
                                 }
                                 Some(Prefix::Server(serv)) => {
                                     tui.add_serv_msg(&client.name, &format!("[{serv}] {msg}"));
@@ -93,7 +95,7 @@ pub async fn handle_network_events(
                         }
                         ServCmd::Join { chan } => {
                             if let Some(Prefix::User { nick, user, host }) = &prefix {
-                                tui.add_msg(&client.name, &prefix, MsgTarget::Chan(chan.clone()),
+                                tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()),
                                     &format!("{nick} ({user}@{host}) joined {chan}"));
                             }
                         }
@@ -104,7 +106,7 @@ pub async fn handle_network_events(
                                 } else {
                                     format!("{nick} ({user}@{host}) left {chan} ({msg})")
                                 };
-                                tui.add_msg(&client.name, &prefix, MsgTarget::Chan(chan.clone()), &msg);
+                                tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()), &msg);
                             }
                         }
                         ServCmd::Notice { msg } => tui.add_serv_msg(&client.name, &msg),

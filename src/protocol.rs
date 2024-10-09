@@ -89,6 +89,16 @@ pub enum MsgTarget {
     Serv(String),
 }
 
+impl MsgTarget {
+    pub fn target(&self) -> &str {
+        match self {
+            MsgTarget::Chan(chan) => chan,
+            MsgTarget::User(user) => user,
+            MsgTarget::Serv(serv) => serv,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Prefix {
     Server(String),

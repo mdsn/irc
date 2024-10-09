@@ -60,7 +60,7 @@ impl InnerUI {
         self.tabs[0].add_line(msg.to_string());
     }
 
-    fn add_msg(&mut self, serv_name: &str, prefix: &Option<Prefix>, target: MsgTarget, msg: &str) {
+    fn add_msg(&mut self, serv_name: &str, target: MsgTarget, msg: &str) {
         let tab_id = match &target {
             MsgTarget::Chan(chan) => TabKind::Chan {
                 serv: serv_name.to_string(),
@@ -138,19 +138,12 @@ impl UI {
         self.inner.borrow_mut().dbg(msg);
     }
 
-    pub fn add_msg(&self, serv_name: &str, prefix: &Option<Prefix>, target: MsgTarget, msg: &str) {
-        self.inner
-            .borrow_mut()
-            .add_msg(serv_name, prefix, target, msg);
+    pub fn add_msg(&self, serv_name: &str, target: MsgTarget, msg: &str) {
+        self.inner.borrow_mut().add_msg(serv_name, target, msg);
     }
 
     pub fn add_serv_msg(&self, serv_name: &str, msg: &str) {
-        self.add_msg(
-            serv_name,
-            &None,
-            MsgTarget::Serv(serv_name.to_string()),
-            msg,
-        );
+        self.add_msg(serv_name, MsgTarget::Serv(serv_name.to_string()), msg);
     }
 
     pub fn add_tab(&self, id: TabKind) {
@@ -239,28 +232,31 @@ impl UI {
             }
             Cmd::Msg(msg) => {
                 let tab_id = self.current_tab().id.clone();
-                match &tab_id {
+                if let Some((serv, msg_target)) = match &tab_id {
                     TabKind::Serv { serv: _ } => {
-                        self.dbg(&format!("Message sent on server tab: {msg}"))
+                        self.dbg(&format!("Message sent on server tab: {msg}"));
+                        None
                     }
                     TabKind::Chan { serv, chan } => {
                         self.dbg(&format!("Sending message to {chan} on {serv}: {msg}"));
-                        if let Some(client) = clients.iter().find(|c| c.name == *serv) {
-                            client.privmsg(chan, &msg);
-                        } else {
-                            self.dbg(&format!("No client found for server {serv}"));
-                        }
+                        Some((serv, MsgTarget::Chan(chan.clone())))
                     }
                     TabKind::Query { serv, nick } => {
                         self.dbg(&format!("Sending message to {nick} on {serv}: {msg}"));
-                        if let Some(client) = clients.iter().find(|c| c.name == *serv) {
-                            client.privmsg(nick, &msg);
-                        } else {
-                            self.dbg(&format!("No client found for server {serv}"));
-                        }
+                        Some((serv, MsgTarget::User(nick.clone())))
                     }
                     _ => {
                         self.dbg("Message command on debug tab");
+                        None
+                    }
+                } {
+                    if let Some(client) = clients.iter().find(|c| c.name == *serv) {
+                        // FIXME message formatting sprawled in ui and client modules
+                        client.privmsg(msg_target.target(), &msg);
+                        let msg = format!("<{}> {msg}", &client.nick);
+                        self.add_msg(&client.name, msg_target, &msg);
+                    } else {
+                        self.dbg(&format!("No client found for server {serv}"));
                     }
                 }
             }
