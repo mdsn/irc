@@ -1,17 +1,9 @@
 /// Parsing IRC messages
 
-// From the RFC:
-//     Each IRC message may consist of up to three main parts: the prefix
-//     (OPTIONAL), the command, and the command parameters (maximum of
-//     fifteen (15)).  The prefix, command, and all parameters are separated
-//     by one ASCII space character (0x20) each.
-//
-//     The presence of a prefix is indicated with a single leading ASCII
-//     colon character (':', 0x3b), which MUST be the first character of the
-//     message itself.
-
 // TODO: Parse MODE message
 // :MrNickname!~guest@freenode-o6n.182.alt94q.IP MODE MrNickname :+wRix
+// TODO Parse PART
+// :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
 
 #[derive(Debug, PartialEq)]
 pub enum ServCmd {

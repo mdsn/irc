@@ -60,29 +60,25 @@ impl InnerUI {
         self.tabs[0].add_line(msg.to_string());
     }
 
-    fn add_msg(&mut self, serv_name: &str, prefix: Option<Prefix>, target: MsgTarget, msg: &str) {
-        let src = match &prefix {
-            Some(Prefix::Server(s)) => s,
-            Some(Prefix::User { nick, .. }) => nick,
-            None => "[?]",
-        };
-
-        let tab_id = match target {
+    fn add_msg(&mut self, serv_name: &str, prefix: &Option<Prefix>, target: MsgTarget, msg: &str) {
+        let tab_id = match &target {
             MsgTarget::Chan(chan) => TabKind::Chan {
                 serv: serv_name.to_string(),
-                chan,
+                chan: chan.to_string(),
             },
             MsgTarget::User(nick) => TabKind::Query {
                 serv: serv_name.to_string(),
-                nick,
+                nick: nick.to_string(),
             },
-            MsgTarget::Serv(serv) => TabKind::Serv { serv },
+            MsgTarget::Serv(serv) => TabKind::Serv {
+                serv: serv.to_string(),
+            },
         };
 
         if let Some(tab) = self.find_tab_mut(&tab_id) {
-            tab.add_line(format!("<{}> {}", src, msg));
+            tab.add_line(format!("{msg}"));
         } else {
-            self.dbg(&format!("<{serv_name}> No tab found {src}: {msg}"));
+            self.dbg(&format!("[{serv_name}] No tab found {target:?} ({msg})"));
         }
     }
 
@@ -142,14 +138,19 @@ impl UI {
         self.inner.borrow_mut().dbg(msg);
     }
 
-    pub fn add_msg(&self, serv_name: &str, prefix: Option<Prefix>, target: MsgTarget, msg: &str) {
+    pub fn add_msg(&self, serv_name: &str, prefix: &Option<Prefix>, target: MsgTarget, msg: &str) {
         self.inner
             .borrow_mut()
             .add_msg(serv_name, prefix, target, msg);
     }
 
     pub fn add_serv_msg(&self, serv_name: &str, msg: &str) {
-        self.add_msg(serv_name, None, MsgTarget::Serv(serv_name.to_string()), msg);
+        self.add_msg(
+            serv_name,
+            &None,
+            MsgTarget::Serv(serv_name.to_string()),
+            msg,
+        );
     }
 
     pub fn add_tab(&self, id: TabKind) {
