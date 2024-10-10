@@ -182,86 +182,92 @@ impl UI {
     pub fn commit_input(&self, clients: &mut Vec<Client>) {
         let input = self.take_input();
         match command::parse_input(&input) {
-            Cmd::Connect(addr) => {
-                self.dbg(&format!("Connecting to {addr}"));
-                let serv_info = ServInfo {
-                    addr,
-                    port: 6667,
-                    nick: self.config.borrow().nick.clone(),
-                    user: self.config.borrow().user.clone(),
-                    real: self.config.borrow().real.clone(),
-                };
-                self.dbg(&format!("{serv_info:?}"));
+            Err(e) => self.dbg(&format!("Command parse error: {e}")),
+            Ok(cmd) => match cmd {
+                Cmd::Connect(addr) => {
+                    self.dbg(&format!("Connecting to {addr}"));
+                    let serv_info = ServInfo {
+                        addr,
+                        port: 6667,
+                        nick: self.config.borrow().nick.clone(),
+                        user: self.config.borrow().user.clone(),
+                        real: self.config.borrow().real.clone(),
+                    };
+                    self.dbg(&format!("{serv_info:?}"));
 
-                let tab_id = TabKind::Serv {
-                    serv: serv_info.name().to_string(),
-                };
-                self.add_tab(tab_id.clone());
-                self.change_to_tab(&tab_id);
+                    let tab_id = TabKind::Serv {
+                        serv: serv_info.name().to_string(),
+                    };
+                    self.add_tab(tab_id.clone());
+                    self.change_to_tab(&tab_id);
 
-                let (client, ev_rx, dbg_rx) = Client::new(serv_info);
-                tokio::task::spawn_local(client::handle_network_events(
-                    ev_rx,
-                    dbg_rx,
-                    self.clone(),
-                    client.clone(),
-                ));
-                clients.push(client);
-            }
-            Cmd::Join(chan) => {
-                let tab_id = self.current_tab().id.clone();
-                match tab_id {
-                    TabKind::Serv { serv } => {
-                        self.dbg(&format!("Joining {chan} on {serv}"));
-                        if let Some(client) = clients.iter().find(|c| c.name == serv) {
-                            client.join(&chan);
-                            let tab_id = TabKind::Chan { serv, chan };
-                            self.add_tab(tab_id.clone());
-                            self.change_to_tab(&tab_id);
+                    let (client, ev_rx, dbg_rx) = Client::new(serv_info);
+                    tokio::task::spawn_local(client::handle_network_events(
+                        ev_rx,
+                        dbg_rx,
+                        self.clone(),
+                        client.clone(),
+                    ));
+                    clients.push(client);
+                }
+                Cmd::Join(chan) => {
+                    let tab_id = self.current_tab().id.clone();
+                    match tab_id {
+                        TabKind::Serv { serv } => {
+                            self.dbg(&format!("Joining {chan} on {serv}"));
+                            if let Some(client) = clients.iter().find(|c| c.name == serv) {
+                                client.join(&chan);
+                                let tab_id = TabKind::Chan { serv, chan };
+                                self.add_tab(tab_id.clone());
+                                self.change_to_tab(&tab_id);
+                            } else {
+                                self.dbg(&format!("No client found for server {serv}"));
+                            }
+                        }
+                        _ => {
+                            self.dbg("Join command on debug tab");
+                        }
+                    }
+                }
+                Cmd::Quit(msg) => {
+                    if let Some(client) = self.find_client_for_current_tab(clients) {
+                        client.quit(&msg);
+                    }
+                }
+                Cmd::Msg(msg) => {
+                    let tab_id = self.current_tab().id.clone();
+                    if let Some((serv, msg_target)) = match &tab_id {
+                        TabKind::Serv { serv: _ } => {
+                            self.dbg(&format!("Message sent on server tab: {msg}"));
+                            None
+                        }
+                        TabKind::Chan { serv, chan } => {
+                            self.dbg(&format!("Sending message to {chan} on {serv}: {msg}"));
+                            Some((serv, MsgTarget::Chan(chan.clone())))
+                        }
+                        TabKind::Query { serv, nick } => {
+                            self.dbg(&format!("Sending message to {nick} on {serv}: {msg}"));
+                            Some((serv, MsgTarget::User(nick.clone())))
+                        }
+                        _ => {
+                            self.dbg("Message command on debug tab");
+                            None
+                        }
+                    } {
+                        if let Some(client) = clients.iter().find(|c| c.name == *serv) {
+                            // FIXME message formatting sprawled in ui and client modules
+                            client.privmsg(msg_target.target(), &msg);
+                            let msg = format!("<{}> {msg}", &client.nick);
+                            self.add_msg(&client.name, msg_target, &msg);
                         } else {
                             self.dbg(&format!("No client found for server {serv}"));
                         }
                     }
-                    _ => {
-                        self.dbg("Join command on debug tab");
-                    }
                 }
-            }
-            Cmd::Quit(msg) => {
-                if let Some(client) = self.find_client_for_current_tab(clients) {
-                    client.quit(&msg);
+                Cmd::Unsupported { cmd, rest } => {
+                    self.dbg(&format!("Unsupported command: {cmd} {rest}"));
                 }
-            }
-            Cmd::Msg(msg) => {
-                let tab_id = self.current_tab().id.clone();
-                if let Some((serv, msg_target)) = match &tab_id {
-                    TabKind::Serv { serv: _ } => {
-                        self.dbg(&format!("Message sent on server tab: {msg}"));
-                        None
-                    }
-                    TabKind::Chan { serv, chan } => {
-                        self.dbg(&format!("Sending message to {chan} on {serv}: {msg}"));
-                        Some((serv, MsgTarget::Chan(chan.clone())))
-                    }
-                    TabKind::Query { serv, nick } => {
-                        self.dbg(&format!("Sending message to {nick} on {serv}: {msg}"));
-                        Some((serv, MsgTarget::User(nick.clone())))
-                    }
-                    _ => {
-                        self.dbg("Message command on debug tab");
-                        None
-                    }
-                } {
-                    if let Some(client) = clients.iter().find(|c| c.name == *serv) {
-                        // FIXME message formatting sprawled in ui and client modules
-                        client.privmsg(msg_target.target(), &msg);
-                        let msg = format!("<{}> {msg}", &client.nick);
-                        self.add_msg(&client.name, msg_target, &msg);
-                    } else {
-                        self.dbg(&format!("No client found for server {serv}"));
-                    }
-                }
-            }
+            },
         }
     }
 
