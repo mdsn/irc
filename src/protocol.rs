@@ -20,6 +20,9 @@ pub enum ServCmd {
     Notice {
         msg: String,
     },
+    Error {
+        msg: String,
+    },
     RplWelcome {
         msg: String,
     }, // 001
@@ -156,8 +159,6 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> ServCmd {
             }
         }
         "PART" => {
-            // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART :#bobcat
-            // :MrNickname!~MrUser@freenode-o6n.182.alt94q.IP PART #bobcat :"getting out of here"
             let (chan, msg) = if params.len() == 1 {
                 (params[0][1..].to_string(), "".to_string())
             } else {
@@ -168,6 +169,10 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> ServCmd {
         "NOTICE" => {
             let msg = params[1][1..].to_string();
             ServCmd::Notice { msg }
+        }
+        "ERROR" => {
+            let msg = params[0][1..].to_string();
+            ServCmd::Error { msg }
         }
         "001" => {
             let msg = params[1][1..].to_string();
@@ -726,6 +731,19 @@ mod tests {
             ServCmd::Notice {
                 msg: "[Random News - Aug 14 18:27:23 2024 UTC] Do you like shooting ducks?"
                     .to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_error() {
+        let msg = "ERROR :Closing link: (~MrUser@1.2.3.4) [Quit: GOODBYE FRIENDS]";
+        let serv_msg = parse_msg(msg);
+        assert_eq!(serv_msg.prefix, None);
+        assert_eq!(
+            serv_msg.command,
+            ServCmd::Error {
+                msg: "Closing link: (~MrUser@1.2.3.4) [Quit: GOODBYE FRIENDS]".to_string()
             }
         );
     }

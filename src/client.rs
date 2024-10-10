@@ -5,8 +5,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub struct Event {
-    msg: ServMsg,
+#[derive(Debug)]
+pub enum Event {
+    Msg { msg: ServMsg },
+    Disconnected,
 }
 
 #[derive(Debug)]
@@ -42,6 +44,10 @@ impl Client {
             .expect("failed to send message");
     }
 
+    pub fn quit(&self, msg: &str) {
+        self.send(&format!("QUIT :{}\r\n", msg));
+    }
+
     pub fn join(&self, chan: &str) {
         self.send(&format!("JOIN {}\r\n", chan));
     }
@@ -75,66 +81,81 @@ pub async fn handle_network_events(
 ) {
     loop {
         tokio::select! {
-            Some(Event { msg }) = ev_rx.recv() => {
-                let ServMsg {
-                    prefix,
-                    command,
-                } = msg;
-                match command {
-                    ServCmd::PrivMsg { target, msg } => {
-                        match &prefix {
-                            Some(Prefix::User { nick, .. }) => {
-                                tui.add_msg(&client.name, target, &format!("<{nick}> {msg}"));
+            Some(ev) = ev_rx.recv() => {
+                match ev {
+                    Event::Disconnected => {
+                        tui.dbg(&format!("{}: TcpStream disconnected", &client.name));
+                        tui.draw();
+                        break;
+                    }
+                    Event::Msg { msg } => {
+                        let ServMsg {
+                            prefix,
+                            command,
+                        } = msg;
+                        match command {
+                            ServCmd::PrivMsg { target, msg } => {
+                                match &prefix {
+                                    Some(Prefix::User { nick, .. }) => {
+                                        // TODO display @/+/etc
+                                        tui.add_msg(&client.name, target, &format!("<{nick}> {msg}"));
+                                    }
+                                    Some(Prefix::Server(serv)) => {
+                                        tui.add_serv_msg(&client.name, &format!("[{serv}] {msg}"));
+                                    }
+                                    _ => tui.dbg(&format!("[{}] PRIVMSG with no prefix {msg:?}", client.name)),
+                                }
                             }
-                            Some(Prefix::Server(serv)) => {
-                                tui.add_serv_msg(&client.name, &format!("[{serv}] {msg}"));
+                            ServCmd::Join { chan } => {
+                                if let Some(Prefix::User { nick, user, host }) = &prefix {
+                                    tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()),
+                                        &format!("{nick} ({user}@{host}) joined {chan}"));
+                                }
                             }
-                            _ => tui.dbg(&format!("[{}] PRIVMSG with no prefix {msg:?}", client.name)),
+                            ServCmd::Part { chan, msg } => {
+                                if let Some(Prefix::User { nick, user, host }) = &prefix {
+                                    let msg = if msg.is_empty() {
+                                        format!("{nick} ({user}@{host}) left {chan}")
+                                    } else {
+                                        format!("{nick} ({user}@{host}) left {chan} ({msg})")
+                                    };
+                                    tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()), &msg);
+                                }
+                            }
+                            ServCmd::Notice { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::Error { msg } => {
+                                tui.add_serv_msg(&client.name, &msg);
+                                // Do not break here--wait for the Event::Disconnected message to
+                                // break out of the loop.
+                            }
+                            ServCmd::RplWelcome { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplYourHost { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplCreated { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplMyInfo { version, umodes, cmodes, cmodes_param } => {
+                                tui.add_serv_msg(&client.name, &format!("{version} {umodes} {cmodes} {cmodes_param}"));
+                            }
+                            ServCmd::RplISupport { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLuserClient { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLuserOp { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLuserUnknown { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLuserChannels { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLuserMe { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplLocalUsers { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::RplGlobalUsers { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::NameReply { sym, chan, nicks } => {
+                                let nicks = nicks.join(" ");
+                                tui.add_serv_msg(&client.name, &format!("{sym} {chan} {nicks}"));
+                            },
+                            ServCmd::EndOfNames { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::MOTDStart { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::Motd { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::MOTDEnd { msg } => tui.add_serv_msg(&client.name, &msg),
+                            ServCmd::DisplayedHost { msg } => tui.add_serv_msg(&client.name, &msg),
+                            _ => tui.dbg(&format!("[{}] unhandled command {command:?}", client.name)),
                         }
+                        tui.draw();
                     }
-                    ServCmd::Join { chan } => {
-                        if let Some(Prefix::User { nick, user, host }) = &prefix {
-                            tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()),
-                                &format!("{nick} ({user}@{host}) joined {chan}"));
-                        }
-                    }
-                    ServCmd::Part { chan, msg } => {
-                        if let Some(Prefix::User { nick, user, host }) = &prefix {
-                            let msg = if msg.is_empty() {
-                                format!("{nick} ({user}@{host}) left {chan}")
-                            } else {
-                                format!("{nick} ({user}@{host}) left {chan} ({msg})")
-                            };
-                            tui.add_msg(&client.name, MsgTarget::Chan(chan.clone()), &msg);
-                        }
-                    }
-                    ServCmd::Notice { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplWelcome { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplYourHost { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplCreated { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplMyInfo { version, umodes, cmodes, cmodes_param } => {
-                        tui.add_serv_msg(&client.name, &format!("{version} {umodes} {cmodes} {cmodes_param}"));
-                    }
-                    ServCmd::RplISupport { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLuserClient { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLuserOp { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLuserUnknown { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLuserChannels { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLuserMe { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplLocalUsers { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::RplGlobalUsers { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::NameReply { sym, chan, nicks } => {
-                        let nicks = nicks.join(" ");
-                        tui.add_serv_msg(&client.name, &format!("{sym} {chan} {nicks}"));
-                    },
-                    ServCmd::EndOfNames { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::MOTDStart { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::Motd { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::MOTDEnd { msg } => tui.add_serv_msg(&client.name, &msg),
-                    ServCmd::DisplayedHost { msg } => tui.add_serv_msg(&client.name, &msg),
-                    _ => tui.dbg(&format!("[{}] unhandled command {command:?}", client.name)),
                 }
-                tui.draw();
             }
 
             Some(msg) = dbg_rx.recv() => {
@@ -182,12 +203,12 @@ async fn network_loop(
 
                         let msg = parse_msg(&line);
                         ev_tx
-                            .send(Event { msg })
+                            .send(Event::Msg { msg })
                             .await
                             .expect("failed to send message");
                     }
                     Ok(None) => {
-                        eprintln!("server closed connection");
+                        ev_tx.send(Event::Disconnected).await.expect("failed to send message");
                         break;
                     }
                     Err(e) => {

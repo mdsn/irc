@@ -228,7 +228,9 @@ impl UI {
                 }
             }
             Cmd::Quit(msg) => {
-                self.dbg(&format!("Quitting: {}", msg));
+                if let Some(client) = self.find_client_for_current_tab(clients) {
+                    client.quit(&msg);
+                }
             }
             Cmd::Msg(msg) => {
                 let tab_id = self.current_tab().id.clone();
@@ -261,6 +263,17 @@ impl UI {
                 }
             }
         }
+    }
+
+    fn find_client_for_current_tab<'a>(&self, clients: &'a Vec<Client>) -> Option<&'a Client> {
+        let tab_id = &self.current_tab().id;
+        let serv = match tab_id {
+            TabKind::Serv { serv } => serv,
+            TabKind::Chan { serv, .. } => serv,
+            TabKind::Query { serv, .. } => serv,
+            _ => return None,
+        };
+        clients.iter().find(|c| c.name == *serv)
     }
 
     pub fn draw(&self) {
