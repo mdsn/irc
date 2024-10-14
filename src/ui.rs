@@ -195,8 +195,10 @@ impl UI {
                     };
                     self.dbg(&format!("{serv_info:?}"));
 
+                    let serv_name = serv_info.name().to_string();
+
                     let tab_id = TabKind::Serv {
-                        serv: serv_info.name().to_string(),
+                        serv: serv_name.clone(),
                     };
                     self.add_tab(tab_id.clone());
                     self.change_to_tab(&tab_id);
@@ -206,7 +208,7 @@ impl UI {
                         ev_rx,
                         dbg_rx,
                         self.clone(),
-                        client.clone(),
+                        serv_name,
                     ));
                     clients.push(client);
                 }
@@ -234,6 +236,11 @@ impl UI {
                         client.quit(&msg);
                     }
                 }
+                Cmd::Nick(nick) => {
+                    if let Some(client) = self.find_client_for_current_tab_mut(clients) {
+                        client.nick(&nick);
+                    }
+                }
                 Cmd::Msg(msg) => {
                     let tab_id = self.current_tab().id.clone();
                     if let Some((serv, msg_target)) = match &tab_id {
@@ -257,7 +264,7 @@ impl UI {
                         if let Some(client) = clients.iter().find(|c| c.name == *serv) {
                             // FIXME message formatting sprawled in ui and client modules
                             client.privmsg(msg_target.target(), &msg);
-                            let msg = format!("<{}> {msg}", &client.nick);
+                            let msg = format!("<{}> {msg}", &client.cur_nick);
                             self.add_msg(&client.name, msg_target, &msg);
                         } else {
                             self.dbg(&format!("No client found for server {serv}"));
@@ -271,7 +278,7 @@ impl UI {
         }
     }
 
-    fn find_client_for_current_tab<'a>(&self, clients: &'a Vec<Client>) -> Option<&'a Client> {
+    fn find_client_for_current_tab<'a>(&self, clients: &'a [Client]) -> Option<&'a Client> {
         let tab_id = &self.current_tab().id;
         let serv = match tab_id {
             TabKind::Serv { serv } => serv,
@@ -280,6 +287,20 @@ impl UI {
             _ => return None,
         };
         clients.iter().find(|c| c.name == *serv)
+    }
+
+    fn find_client_for_current_tab_mut<'a>(
+        &self,
+        clients: &'a mut [Client],
+    ) -> Option<&'a mut Client> {
+        let tab_id = &self.current_tab().id;
+        let serv = match tab_id {
+            TabKind::Serv { serv } => serv,
+            TabKind::Chan { serv, .. } => serv,
+            TabKind::Query { serv, .. } => serv,
+            _ => return None,
+        };
+        clients.iter_mut().find(|c| c.name == *serv)
     }
 
     pub fn draw(&self) {

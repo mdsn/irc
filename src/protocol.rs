@@ -17,6 +17,9 @@ pub enum ServCmd {
         chan: String,
         msg: String,
     },
+    Nick {
+        nick: String,
+    },
     Notice {
         msg: String,
     },
@@ -165,6 +168,10 @@ fn parse_cmd(cmd: &str, params: Vec<String>) -> ServCmd {
                 (params[0].to_string(), params[1][1..].to_string())
             };
             ServCmd::Part { chan, msg }
+        }
+        "NICK" => {
+            let nick = params[0][1..].to_string();
+            ServCmd::Nick { nick }
         }
         "NOTICE" => {
             let msg = params[1][1..].to_string();
@@ -744,6 +751,26 @@ mod tests {
             serv_msg.command,
             ServCmd::Error {
                 msg: "Closing link: (~MrUser@1.2.3.4) [Quit: GOODBYE FRIENDS]".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_nick() {
+        let msg = ":MrNickname!~guest@freenode-o6n.182.alt94q.IP NICK :MrNewNick";
+        let serv_msg = parse_msg(msg);
+        assert_eq!(
+            serv_msg.prefix,
+            Some(Prefix::User {
+                nick: "MrNickname".to_string(),
+                user: "~guest".to_string(),
+                host: "freenode-o6n.182.alt94q.IP".to_string(),
+            })
+        );
+        assert_eq!(
+            serv_msg.command,
+            ServCmd::Nick {
+                nick: "MrNewNick".to_string()
             }
         );
     }

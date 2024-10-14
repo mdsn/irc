@@ -5,6 +5,7 @@ pub enum Cmd {
     Connect(String),
     Join(String),
     Quit(String),
+    Nick(String),
     Msg(String),
     Unsupported { cmd: String, rest: String },
 }
@@ -17,6 +18,9 @@ fn make_cmd(cmd: &str, rest: &str) -> Result<Cmd, &'static str> {
         "/join" => (!rest.is_empty())
             .then_some(Cmd::Join(rest.to_string()))
             .ok_or("No channel name provided"),
+        "/nick" => (!rest.is_empty())
+            .then_some(Cmd::Nick(rest.to_string()))
+            .ok_or("No nickname provided"),
         "/quit" => Ok(Cmd::Quit(rest.to_string())),
         _ => Ok(Cmd::Unsupported {
             cmd: cmd.to_string(),
@@ -28,13 +32,11 @@ fn make_cmd(cmd: &str, rest: &str) -> Result<Cmd, &'static str> {
 pub fn parse_input(input: &str) -> Result<Cmd, &'static str> {
     if !input.starts_with('/') {
         Ok(Cmd::Msg(input.to_string()))
+    } else if let Some(ix) = input.find(' ') {
+        let (cmd, rest) = input.split_at(ix);
+        make_cmd(cmd, rest[1..].trim())
     } else {
-        if let Some(ix) = input.find(' ') {
-            let (cmd, rest) = input.split_at(ix);
-            make_cmd(cmd, &rest[1..].trim())
-        } else {
-            make_cmd(input, "")
-        }
+        make_cmd(input, "")
     }
 }
 
@@ -82,6 +84,20 @@ mod tests {
         let input = "/quit";
         let cmd = parse_input(input);
         assert_eq!(cmd, Ok(Cmd::Quit("".to_string())));
+    }
+
+    #[test]
+    fn test_parse_nick() {
+        let input = "/nick MrNickname";
+        let cmd = parse_input(input);
+        assert_eq!(cmd, Ok(Cmd::Nick("MrNickname".to_string())));
+    }
+
+    #[test]
+    fn test_parse_nick_no_nick() {
+        let input = "/nick";
+        let cmd = parse_input(input);
+        assert_eq!(cmd, Err("No nickname provided"));
     }
 
     #[test]
